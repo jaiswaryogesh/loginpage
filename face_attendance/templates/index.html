@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Face Attendance</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+      h1 { margin: 0 0 1rem; }
+      .row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+      video, canvas { max-width: 100%; border-radius: 8px; background: #111; }
+      .panel { flex: 1 1 320px; }
+      button { padding: 0.75rem 1rem; font-weight: 600; cursor: pointer; border-radius: 8px; border: 1px solid #555; }
+      .muted { opacity: 0.75; }
+      .status { margin-top: 0.5rem; min-height: 1.5rem; }
+      .chip { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 999px; border: 1px solid #888; margin-right: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Face Attendance</h1>
+
+    <p class="muted">
+      Known faces available: <strong>{{ num_known }}</strong>
+      {% if not face_ready %}
+        <span class="chip">face_recognition not installed</span>
+      {% endif %}
+    </p>
+
+    <div class="row">
+      <div class="panel">
+        <video id="video" autoplay playsinline muted width="640" height="480"></video>
+        <div class="status" id="status"></div>
+        <div>
+          <button id="snap">Mark Attendance</button>
+        </div>
+      </div>
+      <div class="panel">
+        <canvas id="canvas" width="640" height="480" class="muted"></canvas>
+        <div id="result" class="status"></div>
+        <p class="muted">Place reference images in <code>static/known</code> as <code>Name.jpg</code>, then click "Mark Attendance".</p>
+      </div>
+    </div>
+
+    <script>
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      const statusEl = document.getElementById('status');
+      const resultEl = document.getElementById('result');
+      const snapBtn = document.getElementById('snap');
+
+      async function initCamera() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          video.srcObject = stream;
+          await video.play();
+          statusEl.textContent = 'Camera ready';
+        } catch (err) {
+          statusEl.textContent = 'Camera access denied or unavailable';
+        }
+      }
+
+      snapBtn.addEventListener('click', async () => {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        if (!width || !height) {
+          statusEl.textContent = 'Camera not ready yet';
+          return;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        statusEl.textContent = 'Processing…';
+
+        try {
+          const response = await fetch('/recognize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: dataUrl }),
+          });
+          const json = await response.json();
+
+          if (!json.ok) {
+            statusEl.textContent = 'Error: ' + (json.error || 'Unknown');
+            return;
+          }
+
+          if (json.recognized && json.recognized.length) {
+            resultEl.textContent = 'Recognized: ' + json.recognized.join(', ');
+          } else {
+            resultEl.textContent = 'No faces recognized.';
+          }
+
+          statusEl.textContent = 'Done';
+        } catch (err) {
+          statusEl.textContent = 'Network error';
+        }
+      });
+
+      window.addEventListener('load', initCamera);
+    </script>
+  </body>
+</html>
